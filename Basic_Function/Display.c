@@ -38,17 +38,27 @@ static const Menu_Item menu[ITEM_NUM] = {
     {"AC/DC",   NULL},                                         
     {"Correct", NULL},                         
 };
-static uint8_t  menu_idx = 0;               //显示
-static uint8_t  now_menu_idx = 0;           //当前模式
-static uint8_t  menu_active = 0;                 // 0=浏览, 1=进入
-static uint8_t  modal_active = 0;                 //旋转编码器B按下
-static int16_t  last_encA = 0;                   //TIM3编码器上次值 
-static int16_t  last_encB = 0;                   // TIM4编码器上次值 
+ uint8_t  menu_idx = 0;               //显示
+ uint8_t  now_menu_idx = 0;           //当前模式
+uint8_t  menu_active = 0;                 // 0=浏览, 1=进入 (extern声明在Basic.h)
+uint8_t  modal_active = 0;                // 编码器B按下 (extern声明在Basic.h)
+static int16_t  last_encA = 0;            // TIM3编码器上次值 (仅本文件)
+static int16_t  last_encB = 0;            // TIM4编码器上次值 (仅本文件)
 
-//单次触发模式
-uint8_t Single_Trig_flag=0;//单次触发储存完成标志
+/* ── 系统标志位 ── */
+volatile uint8_t Single_Trig_flag=0;                 /* 单次触发完成 */
+volatile uint8_t Single_flag=0;                      /* 单次触发模式 */
+volatile uint8_t FFT_flag=0;                         /* FFT触发 */
+volatile uint8_t Correct_flag=0;                     /* 自校正触发 */
+volatile uint8_t Grain_flag=0;                       /* 增益切换 */
+volatile uint8_t V_div_flag=0;                       /* V/div切换 */
+volatile uint8_t T_flag=0;                           /* 时基切换 */
+volatile uint8_t AC_flag=0;                          /* 0=DC 1=AC */
+volatile uint8_t AC_DC_flag=0;                      /* AC/DC有变更 */
+volatile uint8_t AUTO_T_flag=0;                     /* AUTO触发 */
+volatile uint8_t system_busy=0;                     /* 系统忙 */
 
-//垂直灵敏度模式
+/* ── 垂直灵敏度 ── */
 float V_div[3]={1.0,0.1,0.01};//屏幕显示
 uint8_t V_idx=1;
  float V_DIV=1.0f;
@@ -84,7 +94,7 @@ uint8_t AC_idx=0;
 --------------------------------------------*/
 static void Menu_Draw(void)
 {
-    int x = 3, y = 220;                          
+    int x = 5, y = 220;                          
     ILI9341_fill(x, y, x + 200, y + 18, BLACK);  
     uint16_t c = menu_active ? GREEN : GRED;     // 进入=绿, 浏览=红 
     ILI9341_draw_string(x, y, menu[menu_idx].name, c);
@@ -114,7 +124,6 @@ void Menu_EncoderA_Scan(void)
 详见中断函数
 -------------------------------------*/
 
-
 /* -------------------------------------
 旋转编码器B_TIM4旋转 ->根据菜单索引调整参数 
 ---------------------------------------*/
@@ -130,14 +139,15 @@ switch(menu_idx) {
             break;
         case 3: TRI_Scan();
             break;
-        case 4: // Measure 
+        case 4: Freq_Capture_Get();
             break;
-        case 5: // FFT
+        case 5: FFT_Process();
             break;
         case 6:  AC_change();
             break;
-        case 7: // Correct
+        case 7: Correct_Process();
             break;
+            defalut: break;
     }
 }
 
@@ -322,7 +332,7 @@ switch(now_menu_idx) {
             break;
         case 4: // Measure 
             break;
-        case 5: // FFT
+        case 5: FFT_Process();
             break;
         case 6:  AC_output();
             break;

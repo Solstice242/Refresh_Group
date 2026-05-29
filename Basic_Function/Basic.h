@@ -2,177 +2,215 @@
 #define __BASIC_H
 #include "main.h"
 #include "ili9341_driver.h"
-#include "main.h"
 #include "adc.h"
 #include "dac.h"
 #include "dma.h"
 #include "tim.h"
 #include "gpio.h"
 #include "arm_math.h"
-/*display*/
-/*屏幕显示波形区域*/
-#define Show_Left 3
-#define Show_Right 252
-#define Show_Top 25
-#define Show_Bottom 210
-#define Show_Width (Show_Right-Show_Left)
-#define Show_Height (Show_Bottom-Show_Top)
-#define Show_Half  (Show_Bottom+Show_Top)/2
 
-#define GRID_X_COUNT 10  // 竖线等分数量
-#define GRID_Y_COUNT 8   // 横线等分数量
-/*带矩形边框的四种变量：频率、幅度、触发电平、触发方式*/
-#define rectangle_Left  253
-#define rectangle_Right 317
-#define rectangle_Top  20
-#define rectangle_Bottom 210
-#define rectangle_Height 44
-#define rectangle_Average (rectangle_Bottom-rectangle_Top)/4
+/*==============================================================================
+ * 屏幕显示布局
+ *============================================================================*/
+#define Show_Left      3
+#define Show_Right     252
+#define Show_Top       25
+#define Show_Bottom    210
+#define Show_Width     (Show_Right - Show_Left)
+#define Show_Height    (Show_Bottom - Show_Top)
+#define Show_Half      ((Show_Bottom + Show_Top) / 2)
+#define GRID_X_COUNT   10
+#define GRID_Y_COUNT   8
+#define Bar_Width      2
+#define Bar_gap        4
 
-/*ADC滤波*/
-#define sth_area 40//滞回量，噪声
-extern uint16_t last_x,last_y;
+#define rectangle_Left    253
+#define rectangle_Right   317
+#define rectangle_Top     20
+#define rectangle_Bottom  210
+#define rectangle_Height  44
+#define rectangle_Average ((rectangle_Bottom - rectangle_Top) / 4)
 
+/*==============================================================================
+ * ADC / 采样 常量
+ *============================================================================*/
+#define Sample_Point    1024
+#define Display_Point   200
+#define ADC_LSB         (V_REF / adc_buf_max)
+#define TIM_ADC_FREQ    240000000UL
+#define sth_area        40
 
- extern float sample_rate;
-extern float sample_interval;
-extern uint16_t last_x,last_y;
+/*==============================================================================
+ * 菜单 常量
+ *============================================================================*/
+#define ITEM_NUM        8
 
-extern float tri_step;
-extern float tim_div;//时基细调的初始值，根据挡位
-extern float TIM_modal[8];
-extern char* TIM_V[3];
-extern uint16_t  dac_val;
-extern float V_div[3];
-extern uint16_t Vertical_Sensitivity;
-extern float V_Grain[8];//实际增益对应增益数组
-extern float adc_grain;
-extern float adc_amp_grain;//自校正幅度系数--垂直灵敏度
-extern float adc_std_amp;
-extern float ffp;
-extern float adc_fre_grain;//自校正频率系数
-extern float adc_std_fre;
+/*==============================================================================
+ * 全局变量 — 采样 & 波形
+ *============================================================================*/
+extern uint16_t adc_buffer[Sample_Point];
+extern uint16_t adc_display[Display_Point];
+extern uint16_t adc_Filter[Display_Point];
+extern uint16_t last_wave[Display_Point];
+extern float    last_ADC_grain;
+extern float    last_V_DIV;
+extern uint8_t  first_draw;
+extern uint16_t last_x, last_y;
 
+extern float    sample_interval;
+extern float    sample_rate;
+extern uint32_t psc;
+extern uint32_t arr;
+
+/*==============================================================================
+ * 全局变量 — 幅值 & 增益
+ *============================================================================*/
+extern float    ffp;
+extern float    adc_amp_grain;
+extern float    adc_std_amp;
+extern float    adc_fre_grain;
+extern float    adc_std_fre;
 extern uint16_t adc_zero;
-extern float shift_vol;//触发电平真实值
-extern uint8_t tim_index;//决定屏幕显示到实际改变乘的倍数，1/0.001/0.000001
-extern uint8_t tim_modal;//此时对应挡位的下标
-extern uint8_t TIM_Change_flag;//0为粗调模式，1为细调模式
-extern volatile uint8_t  T_flag;
 
-/*adc*/
-extern float sample_interval;
+extern float    V_Grain[8];
+extern uint8_t  Grain_idx;
+extern float    adc_grain;
 
-#define Sample_Point 1024
-#define Display_Point 200
-#define ADC_LSB V_REF/adc_buf_max;//量化步长
-extern uint16_t adc_buffer[Sample_Point]; // DMA缓冲
-extern uint16_t adc_display[Display_Point];//一屏数组
+/*==============================================================================
+ * 全局变量 — 触发电平
+ *============================================================================*/
+extern float    tri_step;
+extern float    step_1[2];
+extern uint8_t  step_dix;
+extern uint16_t dac_val;
+extern float    LEVEL;
 
+/*==============================================================================
+ * 全局变量 — 时基
+ *============================================================================*/
+extern float    T_DIV;
+extern float    TIM_modal[8];
+extern char*    TIM_V[3];
+extern uint8_t  tim_index;
+extern uint8_t  tim_modal;
+extern uint8_t  TIM_Change_flag;
+extern float    tim_div;
 
-#define TIM_ADC_FREQ 240000000UL   /* TIM1(ADC采样定时器) 时钟 = 240MHz (APB2 TimerClk) */
+/*==============================================================================
+ * 全局变量 — 垂直灵敏度
+ *============================================================================*/
+extern float    V_div[3];
+extern uint8_t  V_idx;
+extern float    V_DIV;
 
-extern char line2[50];
-extern uint16_t Mode[2];
-
-extern uint8_t  single_triggered;  
-
-extern uint16_t x,y;
- extern uint16_t last_x;
-extern float last_V_DIV;
-extern float last_V_DIV_2;
-extern uint8_t first_draw;
-extern uint8_t first_draw_2;
-extern volatile uint8_t ADC_flag;//采集
-extern volatile uint8_t DAC_flag;//输出触发电平
-extern volatile uint8_t AC_flag;//初始为AC状态，0为DC
+/*==============================================================================
+ * 全局变量 — 交直流耦合
+ *============================================================================*/
+extern volatile uint8_t AC_flag;
 extern volatile uint8_t AC_DC_flag;
-extern volatile uint8_t Correct_flag;//自校正
-extern volatile uint8_t V_div_flag;//调垂直灵敏度
-extern volatile uint8_t Single_flag;//单次触发
-extern volatile uint8_t Freq_flag;
-extern volatile uint8_t AUTO_flag;
-extern volatile uint8_t tri_flag;
+extern uint8_t  AC_idx;
+
+/*==============================================================================
+ * 全局变量 — 显示测量值
+ *============================================================================*/
+extern float    FREQ;
+extern float    AMP;
+extern float    PRASE;
+extern char     line2[50];
+extern char     buf[100];
+extern uint16_t Mode[2];
+extern char     Display[4][10];
+
+/*==============================================================================
+ * 全局变量 — 标志位
+ *============================================================================*/
+extern volatile uint8_t ADC_flag;
+extern volatile uint8_t Single_flag;
 extern volatile uint8_t Single_Trig_flag;
-extern volatile uint8_t Fre_flag;
-extern float step_1[2];
-extern uint8_t a;
-extern float V_Grain[8];
-extern float V_div[3];
-extern uint8_t V_idx;
-extern volatile uint8_t Grain_idx;
-extern volatile uint8_t Grain_flag;     /* 增益切换标志 */
-extern volatile uint8_t FFT_flag;       /* FFT触发标志 */
-extern volatile uint8_t system_busy;
-extern volatile uint8_t auto_mode;
 
 
+/*==============================================================================
+ * 全局变量 — FFT
+ *============================================================================*/
+extern float32_t hanning_win[Sample_Point];
+extern float32_t FFT_in[Sample_Point];
+extern float32_t fft_mag[Sample_Point / 2];
+extern arm_rfft_fast_instance_f32 rfft_inst;
+extern float32_t base_freq;
+extern float    fft_sample_interval;
 
+/*==============================================================================
+ * 全局变量 — 编码器 & 菜单 (仅声明, 定义在 Display.c)
+ *============================================================================*/
+extern uint8_t  menu_idx;
+extern uint8_t  now_menu_idx;
+extern uint8_t  menu_active;
+extern uint8_t  modal_active;
 
-void V_div_change(uint8_t V_idx);
-void AC_DC_Show(void);
-void ADC_Start(void);
-void TRI_FLAG(void);
- #define FS 500000.0f
- #define Freq_Resolution (FS/Sample_Point)//频率分辨率
- #define Bar_Width 2//柱形宽度
- #define Bar_gap 4//间隔
-extern uint16_t  V_Standard;
-
-extern   float32_t FFT_in[Sample_Point];
-extern  float32_t hanning_win[Sample_Point];
-extern  float32_t fft_mag[Sample_Point/2];
- extern uint32_t psc;   
-  extern char Display[4][10] ;
- extern  uint32_t arr;
-extern  float32_t base_freq;
-void Correct_Process(void);
-void FFT_Init(void);
-float32_t Find_Base_Freq(void);
-void FFT_Analysis(uint16_t *adc_raw,uint16_t len);
-void FFT_Display(uint16_t base_idx);
-
-void set_T_div(float t_div);
-float Shift_T_div(uint8_t Tim_idx,float tim_display);
-
-void Match_Tim(void);
-
-
-extern char buf[100];
-
-#define TIME_BASE_MAX 7  // 最大挡位
-/*函数声明*/
-void Draw_Line(void);
-void Show_Data(void);
-void Show_AUTO_Mode(void);
-void  Screen_DrawWave_color(uint16_t *src, float v_div, float ADC_grain, uint16_t color);
-void Zero_Correct(void);
-void Correct_Process();
- //  void   Phase_Measure();
-void ADC_Project(void);
-
-void ADC_Filter(uint16_t *src, uint16_t *dst, uint16_t len);
-void ADC_Filter_EMA(uint16_t *src, uint16_t *dst, uint16_t len, float alpha);
-void ADC_Filter_Adaptive(uint16_t *src, uint16_t *dst, uint16_t len);
-
-void TRI_Scan(void);
-void TIM_Scan(void);
-void AUTO_Scan(void);
-
-void Freq_Capture_Init(void);
-void Freq_Capture_Stop(void);
+/*==============================================================================
+ * 函数声明 — 测频 (GPIO_flag.c)
+ *============================================================================*/
+void  Freq_Capture_Init(void);
+void  Freq_Capture_Stop(void);
 float Freq_Capture_Get(void);
 
-void ADC_Measure_amp(uint16_t *src);
+/*==============================================================================
+ * 函数声明 — FFT (GPIO_flag.c)
+ *============================================================================*/
+void      FFT_Init(void);
+void      FFT_Analysis(uint16_t *adc_raw, uint16_t len);
+float32_t Find_Base_Freq(void);
+void      FFT_Display(uint16_t base_idx);
+void      FFT_Process(void);
 
+/*==============================================================================
+ * 函数声明 — 自校正 (GPIO_flag.c)
+ *============================================================================*/
+void Zero_Correct(void);
+void Correct_Process(void);
 
-void auto_tri_level(uint16_t* buffer);
-void auto_V_div(float FFP);
-void auto_T_div(float freq);
-void auto_gain(float adc_vpp);   /* 自动硬件增益适配: 根据ADC端Vpp自动选最优增益挡位 */
+/*==============================================================================
+ * 函数声明 — ADC / 幅值 / 增益 (B_adc.c)
+ *============================================================================*/
+void  Chose_Grain(uint8_t idx);
+void  ADC_Measure_amp(uint16_t *src);
+void  auto_gain(float adc_vpp);
+void  tri_step_change(void);
+void  TRI_Scan(void);
+void  HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
 
-void Chose_Grain(uint8_t idx);
+/*==============================================================================
+ * 函数声明 — 滤波 & 波形显示 (B_dac.c)
+ *============================================================================*/
+void  DMA_Finish(void);
+void  Extract_200(uint16_t* dma, uint16_t* dst);
+void  ADC_Filter(uint16_t *src, uint16_t *dst, uint16_t len);
+void  ADC_Filter_EMA(uint16_t *src, uint16_t *dst, uint16_t len, float alpha);
+void  Screen_DrawWave_color(uint16_t *src, float v_div, float ADC_grain, uint16_t color);
+void  ADC_Project(void);
+void  Show_Data(void);
+void  Draw_Line(void);
+
+/*==============================================================================
+ * 函数声明 — 显示 & 菜单 (Display.c)
+ *============================================================================*/
+void  Menu_EncoderA_Scan(void);
+void  Menu_EncoderB(void);
+void  AC_Draw(void);
+void  AC_change(void);
+void  AC_output(void);
+void  V_Draw(void);
+void  V_div_change(void);
+void  TIM_Scan(void);
+void  EncoderB_Press(void);
+
+/*==============================================================================
+ * 函数声明 — 时基 (Display.c)
+ *============================================================================*/
+void  Match_Tim(void);
+float Shift_T_div(uint8_t Tim_idx, float tim_display);
+void  set_T_div(float t_div);
+
 
 
 #endif
-

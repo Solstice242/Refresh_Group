@@ -11,10 +11,9 @@
 2.触发电平可调
 3.上升沿触发中断，开启采集
 ---------------------------*/
-
+//频率变量
 float adc_fre_grain=1.0f;
 float adc_std_fre=1.0f;
-
 
 //幅值变量
 float ffp=0.0f;
@@ -99,6 +98,10 @@ void ADC_Measure_amp(uint16_t *src)
     ffp = (max_v - min_v) * ADC_LSB;
     float vol = ffp / adc_grain;
     AMP = vol * adc_amp_grain;
+    ILI9341_draw_string(rectangle_Left+2,91,"10.1",BLACK);
+     sprintf(line2, " %.1fV", AMP);
+     
+   ILI9341_draw_string(rectangle_Left+2,91,line2,GRED);
 }
 
 /*
@@ -208,19 +211,11 @@ case OUT_2_Pin:
     modal_active = !modal_active; // 切换旋钮按下状态
     break;
 }
-/*
+default:
+    break;
+  }
+}
 
-	case Correct_Pin:
-	{
-	Correct_flag=1;
-	  break;
-	}
-
-
-	default:
-	break;
-	  }
-	}
 
 
 

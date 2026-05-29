@@ -47,13 +47,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
         HAL_ADC_Stop_DMA(&hadc1);
     }
 }
-void DMA_Finish(void)
- {
-    if(ADC_flag == 1) {
-        ADC_flag = 0;
-        ADC_Project();
-    }
-}
+
 /*-----------------------
          取前200个点
 -------------------------*/
@@ -98,6 +92,7 @@ void ADC_Filter_EMA(uint16_t *src, uint16_t *dst, uint16_t len, float alpha)
         dst[i] = (uint16_t)(acc + 0.5f);//加0.5-浮点数转整数，需要四舍五入而不是截断
     }
 }
+
 /*------------------
 画波形：
 输入：原始数据数组、垂直灵敏度、增益、颜色（先擦后画）
@@ -128,6 +123,7 @@ void Screen_DrawWave_color(uint16_t *src,float v_div,float ADC_grain,uint16_t co
         last_y = y;
     }
 }
+
 /*---------------------
 屏幕初始化：网格加参数显示
 -----------------------*/
@@ -165,9 +161,8 @@ void Show_Data(void)
       ILI9341_draw_string(286,2,"/",GRED );
             ILI9341_draw_string(294,2,"DC",Mode[1] );
   
-    ILI9341_draw_string(180,220,"Grain:",GRED );
-    sprintf(line2, " %.4f", adc_grain);
-   ILI9341_draw_string(230,220,line2,GRED );
+    ILI9341_draw_string(5,220,"Single",GRED );
+   
 }
 void Draw_Line(void)
 {
@@ -185,9 +180,10 @@ void Draw_Line(void)
 void ADC_Project(void)
 {
     Extract_200(adc_buffer, adc_display);
-     ADC_Filter(adc_display, adc_Filter, Display_Point);
-    ADC_Filter_Adaptive(adc_display, adc_Filter, Display_Point);
+     ADC_Filter(adc_display, adc_Filter, Display_Point);       /* 中值去毛刺 */
+    ADC_Filter_EMA(adc_Filter, adc_Filter, Display_Point, 0.3f); /* EMA平滑, 替代已删除的ADC_Filter_Adaptive */
     ADC_Measure_amp(adc_Filter);
+     auto_gain(AMP);
     if(!first_draw)
     {
         Screen_DrawWave_color(last_wave, last_V_DIV, last_ADC_grain, BLACK);
