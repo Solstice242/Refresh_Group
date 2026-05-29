@@ -1,0 +1,15 @@
+# 只提交 Basic_Function 和 Core, 忽略其他
+MDK-ARM/
+Drivers/
+Middlewares/
+*.uvguix*
+*.uvoptx
+*.uvprojx
+*.o
+*.axf
+*.hex
+*.map
+*.dep
+*.htm
+*.build_log*
+.vscode/
