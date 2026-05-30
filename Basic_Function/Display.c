@@ -40,23 +40,12 @@ static const Menu_Item menu[ITEM_NUM] = {
 };
  uint8_t  menu_idx = 0;               //显示
  uint8_t  now_menu_idx = 0;           //当前模式
-uint8_t  menu_active = 0;                 // 0=浏览, 1=进入 (extern声明在Basic.h)
-uint8_t  modal_active = 0;                // 编码器B按下 (extern声明在Basic.h)
+uint8_t  menu_active = 0;                 // 0=浏览, 1=进入 
+uint8_t  modal_active = 0;                // 编码器B按下 
 static int16_t  last_encA = 0;            // TIM3编码器上次值 (仅本文件)
 static int16_t  last_encB = 0;            // TIM4编码器上次值 (仅本文件)
 
-/* ── 系统标志位 ── */
-volatile uint8_t Single_Trig_flag=0;                 /* 单次触发完成 */
-volatile uint8_t Single_flag=0;                      /* 单次触发模式 */
-volatile uint8_t FFT_flag=0;                         /* FFT触发 */
-volatile uint8_t Correct_flag=0;                     /* 自校正触发 */
-volatile uint8_t Grain_flag=0;                       /* 增益切换 */
-volatile uint8_t V_div_flag=0;                       /* V/div切换 */
-volatile uint8_t T_flag=0;                           /* 时基切换 */
-volatile uint8_t AC_flag=0;                          /* 0=DC 1=AC */
-volatile uint8_t AC_DC_flag=0;                      /* AC/DC有变更 */
-volatile uint8_t AUTO_T_flag=0;                     /* AUTO触发 */
-volatile uint8_t system_busy=0;                     /* 系统忙 */
+
 
 /* ── 垂直灵敏度 ── */
 float V_div[3]={1.0,0.1,0.01};//屏幕显示

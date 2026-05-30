@@ -9,7 +9,12 @@
 #include "arm_math.h"
 #include "ili9341_driver.h"
 #include "stm32h7xx_it.h"
-
+/*
+补充：
+1.FFT
+2.频率测量
+3.自校正
+*/
 // FFT 全局变量
 float32_t hanning_win[Sample_Point];              
 float32_t FFT_in[Sample_Point];                  //RFFT输入/输出复用 (实数入, 复数出) 
@@ -49,16 +54,16 @@ float Freq_Capture_Get(void)
 
     static uint32_t last_ms   = 0;                  
     static uint16_t last_cnt  = 0;                   
-    static float    cached_khz = 0.0f;               /* 缓存值, 避免逐帧抖动 */
+    static float    cached_khz = 0.0f;              
 
     uint32_t now_ms  = HAL_GetTick();               
     uint16_t cnt_now = htim8.Instance->CNT;          
     uint32_t elapsed = now_ms - last_ms;             
 
     if(elapsed >= 100) {                             /* 每 100ms 刷新一次 */
-        /* uint16 减法自动处理 65535→0 绕回 */
+       
         uint16_t edges = cnt_now - last_cnt;
-        if(elapsed > 200) {                          /* 首次调用 / 长时间未刷新 → 初始化 */
+        if(elapsed > 200) {                          
             last_ms  = now_ms;
             last_cnt = cnt_now;
             return 0.0f;
