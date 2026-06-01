@@ -22,12 +22,12 @@ float adc_std_amp=3.3f;
 
 //增益变量
 float V_Grain[8]={0.129,0.26,0.496,0.992,1.984,3.931,7.9,15.74};//放大或衰减倍数
-uint8_t Grain_idx=2;
-float adc_grain=0.496f;
+uint8_t Grain_idx=7;
+float adc_grain=15.74f;
 
-//触发电平
-float step_1[2]={0.0025,0.025};
- uint8_t step_dix=1;
+//触发电平: 编码器4cnt×0.0025=0.01V/格, OUT_2切换0.1V/格
+float step_1[2]={0.0025f, 0.025f};
+ uint8_t step_dix=0;
 uint16_t last_count_1=0;
 uint16_t adc_zero=8192;//抬升
 float tri_step=0.0025f;
@@ -112,7 +112,6 @@ void ADC_Measure_amp(uint16_t *src)
 void auto_gain(float adc_vpp)
 {
     if(adc_vpp < 0.005f) return; 
-
     float actual_ffp = adc_vpp / adc_grain; 
     if(actual_ffp < 0.0005f) return;
     float target_adc = 1.5f;                 /* 目标Vpp: 约50%满幅, 上下各留一半余量 */
@@ -164,6 +163,8 @@ void TRI_Scan(void)
        if(shift_vol<0.0) shift_vol=0.0f;
        if(shift_vol>3.3f) shift_vol=3.3f;
      dac_val = (uint16_t)((shift_vol / V_REF) * dac_buf_max);
+     sprintf(line2, " LEVEL:%.2f\r\nDAC:%d", LEVEL, dac_val);
+     HAL_UART_Transmit(&huart1, (uint8_t*)line2, strlen(line2), 100);
        HAL_DAC_SetValue(&hdac1,DAC_CHANNEL_1,DAC_ALIGN_12B_R,dac_val);
      sprintf(line2, " %.2fV", LEVEL);
      ILI9341_draw_string(rectangle_Left+2,140,line2,BLACK);
@@ -185,7 +186,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   switch(GPIO_Pin)
   {
 case Rising_Tri_Pin:{
-            //if(system_busy || AUTO_flag || Single_Trig_flag) return;
+            if(Single_Trig_flag) return;
+            FFT_Refresh_flag = 0;                /* 新触发→退出FFT显示 */
             EXTI_D1->IMR1 &= ~(1UL << 4);      // 失能EXTI4
             HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, Sample_Point);
             HAL_TIM_Base_Start(&htim1);
@@ -195,13 +197,47 @@ case Rising_Tri_Pin:{
 case OUT_1_Pin:
 {
     static uint32_t last_t = 0;
-    if(HAL_GetTick() - last_t < 200) return;     
+    if(HAL_GetTick() - last_t < 200) return;
     last_t = HAL_GetTick();
-  menu_active = !menu_active;   // 切换菜单活跃状态
-  if(menu_active) {
-      now_menu_idx = menu_idx; // 进入模式，记录当前索引
-  }
-  break;
+
+    if(menu_active) {
+        /* 已进入某模式 → 退出 */
+        menu_active = 0;
+        encB_need_sync = 1;   /* 下次进入模式时重新同步编码器B */
+    } else {
+        /* 浏览状态 → 根据菜单项决定行为 */
+        now_menu_idx = menu_idx;
+        switch(menu_idx) {
+            case 0: /* Single: 按一次进单次, 再按一次退连续 */
+                Single_flag = !Single_flag;
+                if(Single_flag) {
+                    ILI9341_draw_string(5, 220, "Single", GREEN);
+                } else {
+                    ILI9341_draw_string(5, 220, "Single", GRED);
+                    Single_Trig_flag = 0;
+                    EXTI_D1->IMR1 |= (1UL << 4);     /* 退出时重开连续触发 */
+                }
+                break;
+            case 4: /* Measure: 读频率 */
+                FREQ = Freq_Capture_Get();
+                sprintf(line2, " %.1fkHz", FREQ);
+                ILI9341_draw_string(rectangle_Left+2, 44, line2, BLACK);
+                ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
+                break;
+                break;
+            case 5: /* FFT: 一键执行 */
+                FFT_Process();
+                break;
+            case 7: /* Correct: 一键执行 */
+                Correct_Process();
+                break;
+            default: /* V/DIV(1),T/DIV(2),Trig(3),AC/DC(6): 进入调整模式 */
+                menu_active = 1;
+                encB_need_sync = 1;  /* 进入时也复位, 确保每次进入都同步编码器 */
+                break;
+        }
+    }
+    break;
 }
 case OUT_2_Pin:
 {

@@ -82,6 +82,7 @@ extern float    adc_grain;
 extern float    tri_step;
 extern float    step_1[2];
 extern uint8_t  step_dix;
+extern uint16_t last_count_1;  /* TRI_Scan / Menu_EncoderB Trig 编码器计数 */
 extern uint16_t dac_val;
 extern float    LEVEL;
 
@@ -138,6 +139,7 @@ extern float32_t fft_mag[Sample_Point / 2];
 extern arm_rfft_fast_instance_f32 rfft_inst;
 extern float32_t base_freq;
 extern float    fft_sample_interval;
+extern volatile uint8_t FFT_Refresh_flag;  /* FFT显示锁定: 1=保持频谱, 0=恢复波形 */
 
 /*==============================================================================
  * 全局变量 — 编码器 & 菜单 (仅声明, 定义在 Display.c)
@@ -145,6 +147,7 @@ extern float    fft_sample_interval;
 extern uint8_t  menu_idx;
 extern uint8_t  now_menu_idx;
 extern uint8_t  menu_active;
+extern uint8_t  encB_need_sync;    /* 退出模式时置1, 编码器B下次进入重新同步 */
 extern uint8_t  modal_active;
 
 /*==============================================================================

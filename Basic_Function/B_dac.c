@@ -17,6 +17,8 @@
 3.屏幕显示(初始化+波形对应逻辑)*/
  char buf[100];
  volatile uint8_t ADC_flag=0;//采集完成标志
+volatile uint8_t Single_flag=0;
+volatile uint8_t Single_Trig_flag=0;
 //屏幕显示
  char Display[4][10] = {
     "Freq:",
@@ -179,11 +181,14 @@ void Draw_Line(void)
 /*ADC采集到显示*/
 void ADC_Project(void)
 {
+    if(FFT_Refresh_flag) {  /* FFT频谱已显示, 跳过波形绘制等待用户退出 */
+        return;
+    }
     Extract_200(adc_buffer, adc_display);
      ADC_Filter(adc_display, adc_Filter, Display_Point);       /* 中值去毛刺 */
     ADC_Filter_EMA(adc_Filter, adc_Filter, Display_Point, 0.3f); /* EMA平滑, 替代已删除的ADC_Filter_Adaptive */
     ADC_Measure_amp(adc_Filter);
-     auto_gain(AMP);
+     auto_gain(ffp);        /* 传ADC端Vpp, 非AMP(BNC端). ffp未除adc_grain */
     if(!first_draw)
     {
         Screen_DrawWave_color(last_wave, last_V_DIV, last_ADC_grain, BLACK);

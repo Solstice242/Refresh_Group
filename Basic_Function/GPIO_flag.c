@@ -24,55 +24,57 @@ float32_t base_freq;
 float fft_sample_interval = 0.00001f;             
 volatile uint8_t FFT_Refresh_flag=0;              /* 从FFT返回波形显示时刷新屏幕 */
 
-/*启动 TIM2 捕获 、TIM8 边沿计数 */
+/*启动 TIM2 测周(PA5) + TIM8 测频(PC7) */
 void Freq_Capture_Init(void)
 {
-    HAL_TIM_IC_Start(&htim2, TIM_CHANNEL_1);        
-    HAL_TIM_Base_Start(&htim8);                      
+    HAL_TIM_IC_Start(&htim2, TIM_CHANNEL_1);        /* TIM2_CH1: PA5, Slave RESET, 测周 */
+    HAL_TIM_IC_Start(&htim8, TIM_CHANNEL_2);        /* TIM8_CH2: PC7, ExtClock1, 边沿计数 */
 }
 
 /* 停止测频  */
 void Freq_Capture_Stop(void)
 {
     HAL_TIM_IC_Stop(&htim2, TIM_CHANNEL_1);
-    HAL_TIM_Base_Stop(&htim8);
+    HAL_TIM_IC_Stop(&htim8, TIM_CHANNEL_2);
 }
 
-/*---------------------------------------
-    频率测量与显示
-1.测频/测周双模（<3.33khz测周法，否侧测频法）
-2.每100ms更新一次频率显示       
------------------------------------------*/
+/*==============================================================================
+ * Freq_Capture_Get() — 双模测频, 返回 kHz
+ * 双模切换: CCR1 ≥ 300 ticks (≤ 3.33 kHz) → 测周法
+ *            CCR1 < 300 ticks (> 3.33 kHz) → 测频法
+ *============================================================================*/
 float Freq_Capture_Get(void)
 {
     uint32_t period_us = __HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_1);
 
+    /* ── ① 测周法: 低频 (≤ 3.33 kHz), CCR1 直接读出周期(μs) ── */
     if(period_us >= 300) {
-        if(period_us == 0) return 0.0f;              
-        return 1000.0f / (float)period_us;          
+        if(period_us == 0) return 0.0f;             /* 无信号 */
+        return 1000.0f / (float)period_us;           /* kHz = 1000 / μs */
     }
 
-    static uint32_t last_ms   = 0;                  
-    static uint16_t last_cnt  = 0;                   
-    static float    cached_khz = 0.0f;              
+    /* ── ② 测频法: 高频 (> 3.33 kHz), TIM8 闸门计数 ── */
+    static uint32_t last_ms   = 0;
+    static uint16_t last_cnt  = 0;
+    static float    cached_khz = 0.0f;
 
-    uint32_t now_ms  = HAL_GetTick();               
-    uint16_t cnt_now = htim8.Instance->CNT;          
-    uint32_t elapsed = now_ms - last_ms;             
+    uint32_t now_ms  = HAL_GetTick();
+    uint16_t cnt_now = htim8.Instance->CNT;
+    uint32_t elapsed = now_ms - last_ms;
 
-    if(elapsed >= 100) {                             /* 每 100ms 刷新一次 */
-       
+    if(elapsed > 500) {                              /* 首次调用 → 初始化基准 */
+        last_ms  = now_ms;
+        last_cnt = cnt_now;
+        return 0.0f;
+    }
+
+    if(elapsed >= 100) {                             /* 每100ms刷新 */
         uint16_t edges = cnt_now - last_cnt;
-        if(elapsed > 200) {                          
-            last_ms  = now_ms;
-            last_cnt = cnt_now;
-            return 0.0f;
-        }
         cached_khz = (float)edges * (1000.0f / (float)elapsed);
         last_ms    = now_ms;
         last_cnt   = cnt_now;
     }
-    return cached_khz;                               
+    return cached_khz;
 }
 
 /*-----------------------------------------------
@@ -183,7 +185,8 @@ void FFT_Process(void)
     uint16_t base_idx = (uint16_t)(base_freq / freq_res);
 
     ILI9341_fill(Show_Left, Show_Top, Show_Right, Show_Bottom, BLACK);
-    FFT_Display(base_idx);                            
+    FFT_Display(base_idx);
+    FFT_Refresh_flag = 1;  /* 标记FFT已显示, 防止ADC_Project覆盖 */
 }
 
 /*-------------------------------

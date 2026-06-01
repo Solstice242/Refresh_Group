@@ -100,6 +100,8 @@ extern  float LEVEL;
 #define TFT_T_SDO_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+#define TFT_T_RST_Pin GPIO_PIN_5       /* CubeMX不生成此引脚, USER CODE区永久保留 */
+#define TFT_T_RST_GPIO_Port GPIOD
 #define adc_buf_max 16384.0f
 #define dac_buf_max 4096.0f
 #define V_REF 3.3f

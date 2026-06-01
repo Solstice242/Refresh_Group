@@ -107,7 +107,6 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM1_Init();
   MX_TIM8_Init();
-  MX_TIM15_Init();
   /* USER CODE BEGIN 2 */
   /*旋转编码器*/
 HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
@@ -122,12 +121,11 @@ ILI9341_init(BLACK);
   Show_Data();
 
    HAL_TIM_PWM_Start(&htim12,TIM_CHANNEL_1);
-    HAL_TIM_PWM_Start(&htim15,TIM_CHANNEL_1);
-
-   HAL_GPIO_WritePin(V_OUT_0_GPIO_Port, V_OUT_0_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(V_OUT_1_GPIO_Port, V_OUT_1_Pin, GPIO_PIN_RESET);
+   
+   HAL_GPIO_WritePin(V_OUT_0_GPIO_Port, V_OUT_0_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(V_OUT_1_GPIO_Port, V_OUT_1_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(V_OUT_2_GPIO_Port, V_OUT_2_Pin, GPIO_PIN_SET);
-  Freq_Capture_Init();          /* 双模测频: TIM2(测周)+TIM8(测频) */
+  Freq_Capture_Init();          
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -136,10 +134,9 @@ ILI9341_init(BLACK);
   {
     Menu_EncoderA_Scan();
     Menu_EncoderB();
-    if(modal_active)
-    {
+   
        EncoderB_Press();
-    }
+    
     if(ADC_flag)
     {ADC_flag=0;
       ADC_Project(); 
