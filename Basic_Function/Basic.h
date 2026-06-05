@@ -149,6 +149,9 @@ extern uint8_t  now_menu_idx;
 extern uint8_t  menu_active;
 extern uint8_t  encB_need_sync;    /* 退出模式时置1, 编码器B下次进入重新同步 */
 extern uint8_t  modal_active;
+extern uint8_t  trigger_correct;       /* 主循环触发自校正 */
+extern uint8_t  trigger_fft;           /* 主循环触发FFT */
+extern float    captured_sample_interval; /* ADC采集时的采样间隔, FFT用 */
 
 /*==============================================================================
  * 函数声明 — 测频 (GPIO_flag.c)
@@ -177,6 +180,7 @@ void Correct_Process(void);
  *============================================================================*/
 void  Chose_Grain(uint8_t idx);
 void  ADC_Measure_amp(uint16_t *src);
+void  ADC_Measure_amp_rt(void);       /* 实时幅值: 1024原始点测峰谷 */
 void  auto_gain(float adc_vpp);
 void  tri_step_change(void);
 void  TRI_Scan(void);

@@ -114,17 +114,15 @@ HAL_TIM_Encoder_Start(&htim4,TIM_CHANNEL_ALL);
 /*初始化触发电平*/
 HAL_DAC_Start(&hdac1,DAC_CHANNEL_1);
 HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R,2100);
-
+HAL_GPIO_WritePin(AC_DC_GPIO_Port, AC_DC_Pin, GPIO_PIN_RESET); 
 HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
 ILI9341_init(BLACK);
   Draw_Line();
   Show_Data();
 
-   HAL_TIM_PWM_Start(&htim12,TIM_CHANNEL_1);
+   //HAL_TIM_PWM_Start(&htim12,TIM_CHANNEL_1);
    
-   HAL_GPIO_WritePin(V_OUT_0_GPIO_Port, V_OUT_0_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(V_OUT_1_GPIO_Port, V_OUT_1_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(V_OUT_2_GPIO_Port, V_OUT_2_Pin, GPIO_PIN_SET);
+  Chose_Grain(2);   /* 硬件增益与软件 Grain_idx=2, adc_grain=0.496 同步 */
   Freq_Capture_Init();          
   /* USER CODE END 2 */
 
@@ -134,13 +132,46 @@ ILI9341_init(BLACK);
   {
     Menu_EncoderA_Scan();
     Menu_EncoderB();
-   
+
        EncoderB_Press();
-    
+    if(trigger_correct)
+    {trigger_correct=0;
+      Correct_Process();
+      }
+    if(trigger_fft)
+    {trigger_fft=0;
+      FFT_Process();
+      }
     if(ADC_flag)
     {ADC_flag=0;
-      ADC_Project(); 
+      ADC_Project();
       } /* ADC采集完成标志位, 处理并显示数据 */
+
+    /* 实时测频+测幅: 200ms刷新, 轻量无阻塞 */
+    {static uint32_t last_meas_t = 0;
+     static float last_FREQ = 0.0f;
+     static float last_AMP = 0.0f;
+     uint32_t now = HAL_GetTick();
+     if(now - last_meas_t >= 200) {
+         last_meas_t = now;
+         /* ── 频率 ── */
+         float f = Freq_Capture_Get();
+         if(f > 0.001f && fabsf(f - last_FREQ) > 0.05f) {
+             last_FREQ = f;
+             FREQ = f;
+             sprintf(line2, " %.1fkHz", FREQ);
+             ILI9341_draw_string(rectangle_Left+2, 44, line2, BLACK);
+             ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
+         }
+         /* ── 幅值(1024点全量, 高频更准) ── */
+         ADC_Measure_amp_rt();
+         if(AMP > 0.001f && fabsf(AMP - last_AMP) > 0.05f) {
+             last_AMP = AMP;
+             sprintf(line2, " %.1fV", AMP);
+             ILI9341_draw_string(rectangle_Left+2, 91, line2, BLACK);
+             ILI9341_draw_string(rectangle_Left+2, 91, line2, GRED);
+         }
+     }}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

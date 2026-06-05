@@ -21,9 +21,9 @@ float adc_amp_grain=1.0f;
 float adc_std_amp=3.3f;
 
 //增益变量
-float V_Grain[8]={0.129,0.26,0.496,0.992,1.984,3.931,7.9,15.74};//放大或衰减倍数
-uint8_t Grain_idx=7;
-float adc_grain=15.74f;
+float V_Grain[8]={0.129,0.24,0.496,0.992,1.984,3.931,7.9,15.74};//放大或衰减倍数
+uint8_t Grain_idx=2;
+float adc_grain=0.496f;
 
 //触发电平: 编码器4cnt×0.0025=0.01V/格, OUT_2切换0.1V/格
 float step_1[2]={0.0025f, 0.025f};
@@ -37,6 +37,9 @@ float tri_step=0.0025f;
 void Chose_Grain(uint8_t idx)
 {
     adc_grain = V_Grain[idx];
+    Grain_idx = idx;
+    sprintf(line2, "Grain: %d", idx);
+    HAL_UART_Transmit(&huart1, (uint8_t*)line2, strlen(line2), HAL_MAX_DELAY);
     switch(idx)
     {
 case 0:{ HAL_GPIO_WritePin(V_OUT_0_GPIO_Port, V_OUT_0_Pin, GPIO_PIN_RESET);
@@ -100,8 +103,23 @@ void ADC_Measure_amp(uint16_t *src)
     AMP = vol * adc_amp_grain;
     ILI9341_draw_string(rectangle_Left+2,91,"10.1",BLACK);
      sprintf(line2, " %.1fV", AMP);
-     
    ILI9341_draw_string(rectangle_Left+2,91,line2,GRED);
+}
+
+/*
+实时幅值测量: 用全部1024原始点找峰谷, 比滤波后200点更准(尤其高频!)
+不修改ffp, 不影响auto_gain决策
+*/
+void ADC_Measure_amp_rt(void)
+{
+    uint16_t min_v = 65535, max_v = 0;
+    for (int i = 0; i < Sample_Point; i++) {
+        if (adc_buffer[i] < min_v) min_v = adc_buffer[i];
+        if (adc_buffer[i] > max_v) max_v = adc_buffer[i];
+    }
+    float ffp_full = (max_v - min_v) * ADC_LSB;
+    float vol = ffp_full / adc_grain;
+    AMP = vol * adc_amp_grain;
 }
 
 /*
@@ -225,11 +243,11 @@ case OUT_1_Pin:
                 ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
                 break;
                 break;
-            case 5: /* FFT: 一键执行 */
-                FFT_Process();
+            case 5: /* FFT: 设标志位, 主循环执行 */
+                trigger_fft = 1;
                 break;
-            case 7: /* Correct: 一键执行 */
-                Correct_Process();
+            case 7: /* Correct: 设标志位, 主循环执行 */
+                trigger_correct = 1;
                 break;
             default: /* V/DIV(1),T/DIV(2),Trig(3),AC/DC(6): 进入调整模式 */
                 menu_active = 1;

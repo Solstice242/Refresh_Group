@@ -19,6 +19,7 @@
  volatile uint8_t ADC_flag=0;//采集完成标志
 volatile uint8_t Single_flag=0;
 volatile uint8_t Single_Trig_flag=0;
+float captured_sample_interval = 0.00001f;           /* ADC采集时的采样间隔, 供FFT使用 */
 //屏幕显示
  char Display[4][10] = {
     "Freq:",
@@ -150,7 +151,7 @@ void Show_Data(void)
   sprintf(line2, " %.1fkHz", FREQ);
    ILI9341_draw_string(rectangle_Left+2,44,line2,GRED );
 
-  sprintf(line2, " %.1fV", AMP);
+  sprintf(line2, " %.2fV", AMP);
    ILI9341_draw_string(rectangle_Left+2,91,line2,GRED);
 
      sprintf(line2, " %.2fV", LEVEL);
@@ -184,6 +185,7 @@ void ADC_Project(void)
     if(FFT_Refresh_flag) {  /* FFT频谱已显示, 跳过波形绘制等待用户退出 */
         return;
     }
+    captured_sample_interval = sample_interval;       /* 保存采集时的采样间隔 */
     Extract_200(adc_buffer, adc_display);
      ADC_Filter(adc_display, adc_Filter, Display_Point);       /* 中值去毛刺 */
     ADC_Filter_EMA(adc_Filter, adc_Filter, Display_Point, 0.3f); /* EMA平滑, 替代已删除的ADC_Filter_Adaptive */
@@ -199,7 +201,7 @@ void ADC_Project(void)
     last_ADC_grain = adc_grain;
     first_draw = 0;
 
-    sprintf(line2, " %.1fV", AMP);
+    sprintf(line2, " %.2fV", AMP);
     ILI9341_draw_string(rectangle_Left+2, 91, line2, BLACK);
     ILI9341_draw_string(rectangle_Left+2, 91, line2, GRED);
 

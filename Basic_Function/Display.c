@@ -362,11 +362,10 @@ switch(now_menu_idx) {
             break;
         case 4: // Measure 
             FREQ = Freq_Capture_Get();
-             sprintf(line2, " %.2fHz", FREQ);
-    ILI9341_draw_string(rectangle_Left+2, 60, line2, BLACK);
-    ILI9341_draw_string(rectangle_Left+2, 60, line2, GRED);
+             sprintf(line2, " %.1fkHz", FREQ);
+    ILI9341_draw_string(rectangle_Left+2, 44, line2, BLACK);
+    ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
              break;
-            break;
         case 5: FFT_Process();
             break;
         case 6:  AC_output();

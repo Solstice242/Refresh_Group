@@ -23,6 +23,8 @@ arm_rfft_fast_instance_f32 rfft_inst;
 float32_t base_freq;                              
 float fft_sample_interval = 0.00001f;             
 volatile uint8_t FFT_Refresh_flag=0;              /* 从FFT返回波形显示时刷新屏幕 */
+uint8_t trigger_correct = 0;                         /* 主循环触发自校正 */
+uint8_t trigger_fft = 0;                             /* 主循环触发FFT */
 
 /*启动 TIM2 测周(PA5) + TIM8 测频(PC7) */
 void Freq_Capture_Init(void)
@@ -45,36 +47,52 @@ void Freq_Capture_Stop(void)
  *============================================================================*/
 float Freq_Capture_Get(void)
 {
+    static float last_valid = 0.0f;                  /* 跳变过滤: 上次有效值 */
+    float result;
     uint32_t period_us = __HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_1);
+    static uint32_t dbg_t = 0;
+    if(HAL_GetTick() - dbg_t > 500) {                /* 每500ms打印一次诊断 */
+        dbg_t = HAL_GetTick();
+        sprintf(line2, "T2=%lu\r\n", period_us);
+        HAL_UART_Transmit(&huart1, (uint8_t*)line2, strlen(line2), 100);
+    }
 
     /* ── ① 测周法: 低频 (≤ 3.33 kHz), CCR1 直接读出周期(μs) ── */
     if(period_us >= 300) {
-        if(period_us == 0) return 0.0f;             /* 无信号 */
-        return 1000.0f / (float)period_us;           /* kHz = 1000 / μs */
+        if(period_us == 0) return last_valid;        /* 无信号, 保留上次值 */
+        result = 1000.0f / (float)period_us;         /* kHz = 1000 / μs */
+    } else {
+        /* ── ② 测频法: 高频 (> 3.33 kHz), TIM8 闸门计数 ── */
+        static uint32_t last_ms   = 0;
+        static uint16_t last_cnt  = 0;
+        static float    cached_khz = 0.0f;
+
+        uint32_t now_ms  = HAL_GetTick();
+        uint16_t cnt_now = htim8.Instance->CNT;
+        uint32_t elapsed = now_ms - last_ms;
+
+        if(elapsed > 500) {
+            last_ms  = now_ms;
+            last_cnt = cnt_now;
+            return cached_khz / 1000.0f;
+        }
+
+        if(elapsed >= 100) {
+            uint16_t edges = cnt_now - last_cnt;
+            cached_khz = (float)edges * (1000.0f / (float)elapsed);
+            last_ms    = now_ms;
+            last_cnt   = cnt_now;
+        }
+        result = cached_khz / 1000.0f;
     }
 
-    /* ── ② 测频法: 高频 (> 3.33 kHz), TIM8 闸门计数 ── */
-    static uint32_t last_ms   = 0;
-    static uint16_t last_cnt  = 0;
-    static float    cached_khz = 0.0f;
-
-    uint32_t now_ms  = HAL_GetTick();
-    uint16_t cnt_now = htim8.Instance->CNT;
-    uint32_t elapsed = now_ms - last_ms;
-
-    if(elapsed > 500) {                              /* 首次调用 → 初始化基准 */
-        last_ms  = now_ms;
-        last_cnt = cnt_now;
-        return 0.0f;
+    /* ── 跳变过滤: 拒绝>50%突变, 防噪声毛刺和模式振荡 ── */
+    if(last_valid > 0.001f && result > 0.001f) {
+        float ratio = result / last_valid;
+        if(ratio > 1.5f || ratio < 0.667f) return last_valid;
     }
-
-    if(elapsed >= 100) {                             /* 每100ms刷新 */
-        uint16_t edges = cnt_now - last_cnt;
-        cached_khz = (float)edges * (1000.0f / (float)elapsed);
-        last_ms    = now_ms;
-        last_cnt   = cnt_now;
-    }
-    return cached_khz;
+    if(result > 0.001f) last_valid = result;
+    return result;
 }
 
 /*-----------------------------------------------
@@ -176,10 +194,10 @@ void FFT_Display(uint16_t base_idx)
 ----------------------------------------------------------------*/
 void FFT_Process(void)
 {
-    FFT_Init();                                        
-    fft_sample_interval = sample_interval;             //同步当前采样率！
-    FFT_Analysis(adc_buffer, Sample_Point);           
-    base_freq = Find_Base_Freq();                     
+    FFT_Init();
+    fft_sample_interval = captured_sample_interval; /* 用采集时的采样间隔, 确保频率轴正确 */
+    FFT_Analysis(adc_buffer, Sample_Point);
+    base_freq = Find_Base_Freq();
 
     float32_t freq_res = 1.0f / (fft_sample_interval * (float32_t)Sample_Point);
     uint16_t base_idx = (uint16_t)(base_freq / freq_res);
@@ -208,7 +226,6 @@ void Correct_Process(void)
 {
     HAL_TIM_Encoder_Stop(&htim12, TIM_CHANNEL_ALL);
     HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_1);
-    HAL_Delay(10);                                     //等待 PWM 稳定 
 
     HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, Sample_Point);
     HAL_TIM_Base_Start(&htim1);
@@ -226,7 +243,8 @@ void Correct_Process(void)
 
     Zero_Correct();                                   
     ADC_Filter(adc_buffer, adc_Filter, Display_Point); 
-    ADC_Measure_amp(adc_Filter);                       
+    ADC_Measure_amp(adc_Filter);    
+
     if(AMP > 0.001f) {
         adc_amp_grain = adc_std_amp / AMP;             
     }
@@ -238,6 +256,9 @@ void Correct_Process(void)
     HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_1);
     HAL_TIM_Encoder_Start(&htim12, TIM_CHANNEL_ALL);
     Single_Trig_flag = 0;
+
+    ILI9341_draw_string(5, 220, "Correct", BLACK);
+    ILI9341_draw_string(5, 220, "Correct", GREEN);       /* 完成提示 */
 }
 
 

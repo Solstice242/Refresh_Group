@@ -75,10 +75,10 @@ extern  float LEVEL;
 #define OUT_2_EXTI_IRQn EXTI9_5_IRQn
 #define V_OUT_0_Pin GPIO_PIN_0
 #define V_OUT_0_GPIO_Port GPIOB
-#define V_OUT_1_Pin GPIO_PIN_1
-#define V_OUT_1_GPIO_Port GPIOB
 #define V_OUT_2_Pin GPIO_PIN_2
 #define V_OUT_2_GPIO_Port GPIOB
+#define V_OUT_1_Pin GPIO_PIN_8
+#define V_OUT_1_GPIO_Port GPIOE
 #define AC_DC_Pin GPIO_PIN_10
 #define AC_DC_GPIO_Port GPIOE
 #define OUT_1_Pin GPIO_PIN_13
