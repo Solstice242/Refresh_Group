@@ -75,6 +75,10 @@ extern uint16_t adc_zero;
 extern float    V_Grain[8];
 extern uint8_t  Grain_idx;
 extern float    adc_grain;
+extern uint8_t  auto_mode;      /* 0=MANUAL(T/DIV), 1=AUTO(默认) */
+extern uint8_t  agc_done;       /* AGC流水线完成标志 */
+extern uint8_t  adc_owner;      /* ADC占用: 0=正常触发, 1=AGC自适配 */
+extern float    measured_freq;   /* 自适应引擎最近有效频率估计 (Hz) */
 
 /*==============================================================================
  * 全局变量 — 触发电平
@@ -179,9 +183,19 @@ void Correct_Process(void);
  * 函数声明 — ADC / 幅值 / 增益 (B_adc.c)
  *============================================================================*/
 void  Chose_Grain(uint8_t idx);
-void  ADC_Measure_amp(uint16_t *src);
+float ADC_Measure_amp(uint16_t *src);
+static void ApplySampleRate(uint32_t fs_hz);
 void  ADC_Measure_amp_rt(void);       /* 实时幅值: 1024原始点测峰谷 */
-void  auto_gain(float adc_vpp);
+void  auto_gain(void);               /* (旧版, #if 0 注释保留) */
+void  AGC_Init(void);                /* 开机初始化: 增益=1, 设最大采样率 */
+void  AGC_AutoSampleRate(void);      /* (旧版, #if 0 注释保留) */
+void  AdaptiveEngine_ProcessNewData(uint16_t *buf, uint32_t len, uint32_t current_fs);
+/* ── 旧版 (注释保留) ── */
+float Estimate_Freq_ZeroCross(void);  /* 过零检测粗估频率 */
+void  Auto_Match_Timebase(float freq_khz); /* 自动匹配时基 */
+void  AGC_Run(void);                  /* AGC 7步流水线 */
+void  AGC_Step6_Timebase(float f_precise_hz);  /* 推荐显示时基 */
+void  SafetyNet_Check(void);          /* 后台安全网 */
 void  tri_step_change(void);
 void  TRI_Scan(void);
 void  HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);

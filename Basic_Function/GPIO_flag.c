@@ -18,7 +18,7 @@
 // FFT 全局变量
 float32_t hanning_win[Sample_Point];              
 float32_t FFT_in[Sample_Point];                  //RFFT输入/输出复用 (实数入, 复数出) 
-float32_t fft_mag[Sample_Point/2];               // 幅值谱, 仅存前N/2个bin
+float32_t fft_mag[Sample_Point/2 + 1];           // 幅值谱: [0]=DC, [1..510]=bin1..510, [511]=bin511, [512]=Nyquist
 arm_rfft_fast_instance_f32 rfft_inst;          
 float32_t base_freq;                              
 float fft_sample_interval = 0.00001f;             
@@ -53,8 +53,8 @@ float Freq_Capture_Get(void)
     static uint32_t dbg_t = 0;
     if(HAL_GetTick() - dbg_t > 500) {                /* 每500ms打印一次诊断 */
         dbg_t = HAL_GetTick();
-        sprintf(line2, "T2=%lu\r\n", period_us);
-        HAL_UART_Transmit(&huart1, (uint8_t*)line2, strlen(line2), 100);
+      //  sprintf(line2, "T2=%lu\r\n", period_us);
+      //  HAL_UART_Transmit(&huart1, (uint8_t*)line2, strlen(line2), 100);
     }
 
     /* ── ① 测周法: 低频 (≤ 3.33 kHz), CCR1 直接读出周期(μs) ── */
@@ -65,7 +65,7 @@ float Freq_Capture_Get(void)
         /* ── ② 测频法: 高频 (> 3.33 kHz), TIM8 闸门计数 ── */
         static uint32_t last_ms   = 0;
         static uint16_t last_cnt  = 0;
-        static float    cached_khz = 0.0f;
+        static float    cached_hz = 0.0f;    /* 缓存值单位是Hz, 非kHz */
 
         uint32_t now_ms  = HAL_GetTick();
         uint16_t cnt_now = htim8.Instance->CNT;
@@ -74,16 +74,16 @@ float Freq_Capture_Get(void)
         if(elapsed > 500) {
             last_ms  = now_ms;
             last_cnt = cnt_now;
-            return cached_khz / 1000.0f;
+            return cached_hz / 1000.0f;       /* Hz → kHz */
         }
 
         if(elapsed >= 100) {
             uint16_t edges = cnt_now - last_cnt;
-            cached_khz = (float)edges * (1000.0f / (float)elapsed);
-            last_ms    = now_ms;
-            last_cnt   = cnt_now;
+            cached_hz = (float)edges * (1000.0f / (float)elapsed);  /* Hz */
+            last_ms   = now_ms;
+            last_cnt  = cnt_now;
         }
-        result = cached_khz / 1000.0f;
+        result = cached_hz / 1000.0f;         /* Hz → kHz */
     }
 
     /* ── 跳变过滤: 拒绝>50%突变, 防噪声毛刺和模式振荡 ── */
@@ -126,13 +126,16 @@ void FFT_Analysis(uint16_t *adc_raw, uint16_t len)
         }
     }
     arm_rfft_fast_f32(&rfft_inst, FFT_in, FFT_in, 0);
-    //幅值谱 
-    fft_mag[0] = fabsf(FFT_in[0]) / (float32_t)Sample_Point;        
-    fft_mag[Sample_Point / 2 - 1] = fabsf(FFT_in[1]) / (float32_t)Sample_Point; 
-    for(int i = 1; i < Sample_Point / 2 - 1; i++) {
+    /* 幅值谱: window_scale=sum(hanning)/N=0.5, 归一化时需 ×(1/window_scale)=×2
+       DC/Nyquist:  ×(1.0/(scale*N));  其他bin: ×(2.0/(scale*N))
+       fft_mag 布局: [0]=DC, [1..N/2-1]=bin1..511, [N/2]=Nyquist */
+    float32_t scale = 0.5f;  /* Hanning窗相干增益 = sum(win)/N */
+    fft_mag[0] = fabsf(FFT_in[0]) / (scale * (float32_t)Sample_Point);
+    fft_mag[Sample_Point / 2] = fabsf(FFT_in[1]) / (scale * (float32_t)Sample_Point);
+    for(int i = 1; i < Sample_Point / 2; i++) {
         float32_t real = FFT_in[2 * i];
         float32_t imag = FFT_in[2 * i + 1];
-        fft_mag[i] = sqrtf(real * real + imag * imag) / ((float32_t)Sample_Point / 2.0f);
+        fft_mag[i] = 2.0f * sqrtf(real * real + imag * imag) / (scale * (float32_t)Sample_Point);
     }
 }
 
@@ -146,6 +149,7 @@ float32_t Find_Base_Freq(void)
     uint16_t max_idx = 1;
     float32_t max_val = 0.0f;
 
+    /* 搜索范围 1..N/2-1, 排除 DC[0] 和 Nyquist[N/2] */
     for(int i = 1; i < Sample_Point / 2; i++) {
         if(fft_mag[i] > max_val) {
             max_val = fft_mag[i];
@@ -156,21 +160,48 @@ float32_t Find_Base_Freq(void)
     return (float32_t)max_idx * freq_res;
 }
 
+/*---------------------------------------------------------------
+ 改进B: FFT_FindPeakNear — 在预期bin ±search_range 内搜索真实峰值
+ 补偿Hanning窗频谱泄漏和栅栏效应, 谐波幅值比直接用整数倍bin更准确
+---------------------------------------------------------------*/
+static uint16_t FFT_FindPeakNear(uint16_t center_bin, uint16_t search_range)
+{
+    uint16_t start_bin = (center_bin > search_range) ? (center_bin - search_range) : 1;
+    uint16_t end_bin   = center_bin + search_range;
+    if (end_bin >= Sample_Point / 2) end_bin = Sample_Point / 2 - 1;  /* 排除 Nyquist */
+
+    uint16_t max_bin = start_bin;
+    for (uint16_t i = start_bin + 1; i <= end_bin; i++) {
+        if (fft_mag[i] > fft_mag[max_bin]) max_bin = i;
+    }
+    return max_bin;
+}
+
 /*-----------------------------------------------------------
  频谱显示：左侧柱状图(0~N/4 bin) +文字
- 柱状图: 每隔一个bin画2px宽绿色柱, 高度=mag*Show_Half/V_REF
+ 改进B: 谐波用FFT_FindPeakNear峰值精修, 补偿频谱泄漏
+ 改进C: 柱状图高度自适应归一化, 替换固定V_REF缩放
  -----------------------------------------------------------*/
 void FFT_Display(uint16_t base_idx)
 {
     ILI9341_fill(Show_Left, Show_Top, Show_Right, Show_Bottom, BLACK);
     Draw_Line();
 
+    /* ── 改进C: 找显示范围内最大幅值, 用来自适应缩放频谱高度 ── */
+    float max_mag = 0.001f;  /* 防除零 */
+    uint16_t disp_bins = Sample_Point / 4;
+    for (uint16_t i = 0; i < disp_bins; i++) {
+        if (fft_mag[i] > max_mag) max_mag = fft_mag[i];
+    }
+
     char buf[32];
     for(int i = 0; i < Sample_Point / 4; i += 2) {
         uint16_t x = Show_Left + i * (Bar_Width + Bar_gap);
         if(x + Bar_Width > Show_Left + Show_Width) break;
 
-        uint16_t bar_h = (uint16_t)(fft_mag[i] * (float)Show_Half / V_REF);
+        //旧: 固定V_REF缩放 → 小信号时频谱太矮, 大信号时削顶
+        //uint16_t bar_h = (uint16_t)(fft_mag[i] * (float)Show_Half / V_REF);
+        uint16_t bar_h = (uint16_t)(fft_mag[i] / max_mag * (float)Show_Height * 0.85f);
         if(bar_h > Show_Height) bar_h = Show_Height;
 
         ILI9341_fill(x, Show_Bottom - bar_h, x + Bar_Width, Show_Bottom, GREEN);
@@ -178,7 +209,11 @@ void FFT_Display(uint16_t base_idx)
 
     float32_t freq_res = 1.0f / (fft_sample_interval * (float32_t)Sample_Point);
     for(int n = 1; n <= 5; n++) {
-        uint16_t harm_idx = base_idx * n;
+        //旧: 直接用 base_idx*n, 不补偿频谱泄漏导致谐波幅值偏低
+        //uint16_t harm_idx = base_idx * n;
+        /* ── 改进B: 在预期谐波位置 ±2 bin 搜索真实峰值 ── */
+        uint16_t target_bin = base_idx * n;
+        uint16_t harm_idx = FFT_FindPeakNear(target_bin, 2);
         if(harm_idx < Sample_Point / 2) {
             float32_t harm_freq = (float32_t)harm_idx * freq_res;
             float32_t harm_amp  = fft_mag[harm_idx];
@@ -194,13 +229,19 @@ void FFT_Display(uint16_t base_idx)
 ----------------------------------------------------------------*/
 void FFT_Process(void)
 {
-    FFT_Init();
+    /* 并发保护: ADC正在DMA传输时 adc_buffer 数据不完整, 禁止FFT */
+    if(Single_Trig_flag) return;
+
+    //FFT_Init();  /* 旧: 每帧重复初始化窗+RFFT, 浪费CPU */
+    /* 改进A: FFT_Init() 移到 main.c 启动时一次性调用, Hanning窗是常量无需重算 */
     fft_sample_interval = captured_sample_interval; /* 用采集时的采样间隔, 确保频率轴正确 */
     FFT_Analysis(adc_buffer, Sample_Point);
     base_freq = Find_Base_Freq();
 
     float32_t freq_res = 1.0f / (fft_sample_interval * (float32_t)Sample_Point);
     uint16_t base_idx = (uint16_t)(base_freq / freq_res);
+    if(base_idx == 0) base_idx = 1;                      /* 防DC */
+    if(base_idx >= Sample_Point / 2) base_idx = Sample_Point / 2 - 1;  /* 防越界 */
 
     ILI9341_fill(Show_Left, Show_Top, Show_Right, Show_Bottom, BLACK);
     FFT_Display(base_idx);
@@ -224,6 +265,7 @@ void Zero_Correct(void)
 ---------------------------------------------------------*/
 void Correct_Process(void)
 {
+    if(Single_Trig_flag) return;          /* ADC采集中, 禁止校正抢占 */
     HAL_TIM_Encoder_Stop(&htim12, TIM_CHANNEL_ALL);
     HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_1);
 
@@ -241,9 +283,9 @@ void Correct_Process(void)
     }
     ADC_flag = 0;
 
-    Zero_Correct();                                   
-    ADC_Filter(adc_buffer, adc_Filter, Display_Point); 
-    ADC_Measure_amp(adc_Filter);    
+    Zero_Correct();
+    ADC_Filter(adc_buffer, adc_Filter, Display_Point);
+    ADC_Measure_amp(adc_buffer);    /* 1024原始点测幅, 非200滤波点 */
 
     if(AMP > 0.001f) {
         adc_amp_grain = adc_std_amp / AMP;             

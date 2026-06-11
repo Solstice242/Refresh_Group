@@ -53,7 +53,6 @@ uint8_t V_idx=1;
  float V_DIV=1.0f;
 
 //时基模式
- float  T_DIV = 20.0f;
 float TIM_modal[8]={20,50,100,
                   0.2,1,10,100,
                   0.2};
@@ -61,9 +60,10 @@ char* TIM_V[3]={"us","ms","s"};
 uint8_t tim_index = 0;
 uint8_t tim_modal=0;
 uint8_t TIM_Change_flag=0;
-float tim_div=20.0f;
-float sample_interval= 0.00001f;
-float sample_rate;
+float tim_div=20.0f;//单位前数值
+ float  T_DIV = 20.0f;//当前时基（秒）
+float sample_interval= 0.00001f;//当前采样间隔
+float sample_rate;//当前采样率
  uint32_t psc=0;   
     uint32_t arr =0;
 
@@ -166,11 +166,16 @@ void Menu_EncoderB(void)
                 int16_t diff = now - (int16_t)last_count_1;
                 if(diff != 0) {
                     LEVEL += (float)diff * tri_step;
-                    float sv = LEVEL * adc_grain + (float)adc_zero * ADC_LSB;
+                    if(LEVEL<0.0f) LEVEL=0.0f;        /* 钳位防编码器累积漂移 */
+                    if(LEVEL>3.3f) LEVEL=3.3f;
+                    //旧: float sv = LEVEL * adc_grain + (float)adc_zero * ADC_LSB;
+                    float sv = LEVEL; // LEVEL直接表示比较器端电压(0~3.3V)
                     if(sv < 0.0f) sv = 0.0f; if(sv > 3.3f) sv = 3.3f;
                     dac_val = (uint16_t)((sv / V_REF) * dac_buf_max);
+                    if(dac_val > 4095) dac_val = 4095;           /* 12位DAC上限 */
                     HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, dac_val);
-                    sprintf(line2, " %.2fV", LEVEL);
+                    float true_level = LEVEL * adc_grain + (float)adc_zero * ADC_LSB ; // 显示输入端电压水平
+                    sprintf(line2, " %.2fV", true_level);
                     ILI9341_draw_string(rectangle_Left+2, 140, line2, BLACK);
                     ILI9341_draw_string(rectangle_Left+2, 140, line2, GRED);
                     last_count_1 = (uint16_t)now;
@@ -382,21 +387,23 @@ void AC_output(void)
 {
     AC_idx = (AC_idx + 1) % 2;  /* 切换AC/DC */
     AC_Draw();                   /* 刷新屏幕显示 */
+    /* main初始化 RESET=DC, 此处保持一致: AC_idx=0→DC→RESET, AC_idx=1→AC→SET */
     switch(AC_idx)
     {
         case 0:
-        HAL_GPIO_WritePin(AC_DC_GPIO_Port, AC_DC_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(AC_DC_GPIO_Port, AC_DC_Pin, GPIO_PIN_RESET);
             break;
         case 1:
-        HAL_GPIO_WritePin(AC_DC_GPIO_Port, AC_DC_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(AC_DC_GPIO_Port, AC_DC_Pin, GPIO_PIN_SET);
             break;
     }
 }
 
 void Match_Tim(void)
 {
+    /* tim_base全是μs单位, 用作匹配基准; TIM_modal混用μs/ms/s仅用于显示 */
     const float tim_base[8] = {
-        20,50,100,200,1000,10000,100000,200000                    
+        20,50,100,200,1000,10000,100000,200000
     };
     float current_base;
         switch(tim_index)
@@ -433,7 +440,7 @@ void Match_Tim(void)
 //时基模式改变-粗调与细调
 float Shift_T_div(uint8_t Tim_idx,float tim_display)
 {
-     switch(tim_index)
+     switch(Tim_idx)   /* 使用传入参数, 非全局 tim_index */
     {
         case 0:  // us/div
             T_DIV = tim_display / 1000000.0f;
@@ -447,26 +454,34 @@ float Shift_T_div(uint8_t Tim_idx,float tim_display)
         default:
             T_DIV = 0.2f / 1000.0f;
     }
-    return T_DIV;
+    float total_scan_time = T_DIV * 10.0f;
+     sample_rate = (uint32_t)(Display_Point / total_scan_time);
+     if(sample_rate < 100)       sample_rate = 100;
+     if(sample_rate > 5000000)   sample_rate = 5000000;
+     return sample_rate;
 }
 
-void set_T_div(float t_div)
+void set_T_div(float Sample_rate)
 {
-    float total_scan_time = t_div * 10.0f;
-     sample_rate = (uint32_t)(Display_Point / total_scan_time);
-     arr = (TIM_ADC_FREQ /  sample_rate) - 1;
-    while(arr > adc_buf_max && psc < 239)
+    if(Sample_rate <= 0.0f) return;              /* 防除零 */
+
+    psc = 0;                                     /* 全局psc必须重置, 否则累积 */
+    arr = (TIM_ADC_FREQ /  Sample_rate) - 1;
+    //旧: while(arr > adc_buf_max && psc < 239)  // adc_buf_max=16384, TIM1 ARR上限应为65535
+    while(arr > 65535 && psc < 239)
     {
         psc++;
-        arr = (TIM_ADC_FREQ / ((psc + 1) * sample_rate)) - 1;
+        arr = (TIM_ADC_FREQ / ((psc + 1) * Sample_rate)) - 1;
     }
 
-    if(arr > adc_buf_max) arr = adc_buf_max;
-    if(arr < 0) arr = 0;
-    __HAL_TIM_SET_PRESCALER(&htim1, psc);     
+    if(arr > 65535) arr = 65535;
+    //旧: if(arr < 0) arr = 0;  // arr是uint32_t, 永不为负
+    HAL_TIM_Base_Stop(&htim1);                     /* 安全: 先停后改 */
+    __HAL_TIM_SET_PRESCALER(&htim1, psc);
     __HAL_TIM_SET_AUTORELOAD(&htim1, arr);
     __HAL_TIM_SET_COUNTER(&htim1, 0);
-    sample_interval=1.0f/sample_rate;
+    htim1.Instance->EGR = TIM_EGR_UG;              /* 强制更新影子寄存器 */
+    sample_interval=1.0f/Sample_rate;
 
 }
 

@@ -186,11 +186,11 @@ void ADC_Project(void)
         return;
     }
     captured_sample_interval = sample_interval;       /* 保存采集时的采样间隔 */
+    ADC_Measure_amp(adc_buffer);                      /* 1024原始点测幅, 比200滤波点更精准 */
     Extract_200(adc_buffer, adc_display);
      ADC_Filter(adc_display, adc_Filter, Display_Point);       /* 中值去毛刺 */
-    ADC_Filter_EMA(adc_Filter, adc_Filter, Display_Point, 0.3f); /* EMA平滑, 替代已删除的ADC_Filter_Adaptive */
-    ADC_Measure_amp(adc_Filter);
-     auto_gain(ffp);        /* 传ADC端Vpp, 非AMP(BNC端). ffp未除adc_grain */
+    ADC_Filter_EMA(adc_Filter, adc_Filter, Display_Point, 0.3f); /* EMA平滑 */
+     AdaptiveEngine_ProcessNewData(adc_buffer, Sample_Point, (uint32_t)sample_rate);
     if(!first_draw)
     {
         Screen_DrawWave_color(last_wave, last_V_DIV, last_ADC_grain, BLACK);

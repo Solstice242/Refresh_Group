@@ -121,9 +121,10 @@ ILI9341_init(BLACK);
   Show_Data();
 
    //HAL_TIM_PWM_Start(&htim12,TIM_CHANNEL_1);
-   
-  Chose_Grain(2);   /* 硬件增益与软件 Grain_idx=2, adc_grain=0.496 同步 */
-  Freq_Capture_Init();          
+  
+  AGC_Init();                   /* 增益=1, 设最大采样率 */
+  FFT_Init();                   
+	  Freq_Capture_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -142,15 +143,26 @@ ILI9341_init(BLACK);
     {trigger_fft=0;
       FFT_Process();
       }
+    {static uint32_t last_adc_t = 0;      /* auto-trigger: 上次ADC完成时刻 */
     if(ADC_flag)
     {ADC_flag=0;
       ADC_Project();
+      last_adc_t = HAL_GetTick();
       } /* ADC采集完成标志位, 处理并显示数据 */
 
-    /* 实时测频+测幅: 200ms刷新, 轻量无阻塞 */
+    /* auto-trigger: 无外部触发超过200ms自动启动采集 */
+     if(!Single_Trig_flag && !adc_owner
+        && (EXTI_D1->IMR1 & (1UL << 4))     /* EXTI已使能=等待触发 */
+        && HAL_GetTick() - last_adc_t > 200) {
+         EXTI_D1->IMR1 &= ~(1UL << 4);       /* 失能防重入 */
+         HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, Sample_Point);
+         HAL_TIM_Base_Start(&htim1);
+         Single_Trig_flag = 1;
+     }}
+
+    /* 实时测频: 200ms刷新, 轻量无阻塞 */
     {static uint32_t last_meas_t = 0;
      static float last_FREQ = 0.0f;
-     static float last_AMP = 0.0f;
      uint32_t now = HAL_GetTick();
      if(now - last_meas_t >= 200) {
          last_meas_t = now;
@@ -163,15 +175,9 @@ ILI9341_init(BLACK);
              ILI9341_draw_string(rectangle_Left+2, 44, line2, BLACK);
              ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
          }
-         /* ── 幅值(1024点全量, 高频更准) ── */
-         ADC_Measure_amp_rt();
-         if(AMP > 0.001f && fabsf(AMP - last_AMP) > 0.05f) {
-             last_AMP = AMP;
-             sprintf(line2, " %.1fV", AMP);
-             ILI9341_draw_string(rectangle_Left+2, 91, line2, BLACK);
-             ILI9341_draw_string(rectangle_Left+2, 91, line2, GRED);
-         }
-     }}
+        
+     }
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
