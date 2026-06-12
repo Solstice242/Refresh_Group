@@ -25,7 +25,7 @@ float captured_sample_interval = 0.00001f;           /* ADC采集时的采样间
     "Freq:",
     "Amp:",
     "Level:",
-    "Prase:"
+    "Grain:"
 };
 uint16_t Mode[2] = {
    LGRAYBLUE ,
@@ -157,7 +157,7 @@ void Show_Data(void)
      sprintf(line2, " %.2fV", LEVEL);
    ILI9341_draw_string(rectangle_Left+2,140,line2,GRED );
 
-  sprintf(line2, " %.1f", PRASE);
+  sprintf(line2, " %.3f", adc_grain);
    ILI9341_draw_string(rectangle_Left+2,185,line2,GRED );
 
    ILI9341_draw_string(270,2,"AC",Mode[0] );
@@ -185,12 +185,13 @@ void ADC_Project(void)
     if(FFT_Refresh_flag) {  /* FFT频谱已显示, 跳过波形绘制等待用户退出 */
         return;
     }
-    captured_sample_interval = sample_interval;       /* 保存采集时的采样间隔 */
-    ADC_Measure_amp(adc_buffer);                      /* 1024原始点测幅, 比200滤波点更精准 */
+     captured_sample_interval = sample_interval;       /* 保存采集时的采样间隔 */
     Extract_200(adc_buffer, adc_display);
      ADC_Filter(adc_display, adc_Filter, Display_Point);       /* 中值去毛刺 */
     ADC_Filter_EMA(adc_Filter, adc_Filter, Display_Point, 0.3f); /* EMA平滑 */
-     AdaptiveEngine_ProcessNewData(adc_buffer, Sample_Point, (uint32_t)sample_rate);
+     ADC_Measure_amp(adc_Filter); 
+    // if(AMP<0.5f)     Chose_Grain(6);
+    // else  Chose_Grain(0);
     if(!first_draw)
     {
         Screen_DrawWave_color(last_wave, last_V_DIV, last_ADC_grain, BLACK);
@@ -200,11 +201,8 @@ void ADC_Project(void)
     last_V_DIV = V_DIV;
     last_ADC_grain = adc_grain;
     first_draw = 0;
-
-    sprintf(line2, " %.2fV", AMP);
-    ILI9341_draw_string(rectangle_Left+2, 91, line2, BLACK);
-    ILI9341_draw_string(rectangle_Left+2, 91, line2, GRED);
-
+//sprintf(line2, " %.2fV", adc_grain);
+//HAL_UART_Transmit(&huart1, (uint8_t *)line2, strlen(line2), 100);
     if(Single_flag==0) {
         Single_Trig_flag = 0;
         EXTI_D1->IMR1 |= (1UL << 4);

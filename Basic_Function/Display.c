@@ -23,20 +23,21 @@
  char line2[50];
 
 //菜单
-#define ITEM_NUM 8                            
+#define ITEM_NUM 9
 typedef struct {
     const char *name;                            /* 屏幕显示名 */
     void (*on_enter)(void);                      /* OUT_1按下: 进入模式 */
 } Menu_Item;
 static const Menu_Item menu[ITEM_NUM] = {
     {"Single",    NULL},
-    {"V/DIV",   NULL},                           
-    {"T/DIV",    NULL},                           
-    {"Trig",    NULL},                       
-    {"Measure",    NULL},    
-     {"FFT",     NULL},                          
-    {"AC/DC",   NULL},                                         
-    {"Correct", NULL},                         
+    {"V/DIV",   NULL},
+    {"T/DIV",    NULL},
+    {"Trig",    NULL},
+    {"Measure",    NULL},
+     {"FFT",     NULL},
+    {"AC/DC",   NULL},
+    {"Correct", NULL},
+    {"Grain",   NULL},
 };
  uint8_t  menu_idx = 0;               //显示
  uint8_t  now_menu_idx = 0;           //当前模式
@@ -53,9 +54,9 @@ uint8_t V_idx=1;
  float V_DIV=1.0f;
 
 //时基模式
-float TIM_modal[8]={20,50,100,
-                  0.2,1,10,100,
-                  0.2};
+float TIM_modal[9]={10,50,100,
+                  0.5,1,10,100,
+                  0.2,2};
 char* TIM_V[3]={"us","ms","s"};
 uint8_t tim_index = 0;
 uint8_t tim_modal=0;
@@ -142,7 +143,7 @@ void Menu_EncoderB(void)
             break;
         case 2: /* T/DIV */
             if(TIM_Change_flag == 0) {           /* 粗调: 循环8挡 */
-                tim_modal = (tim_modal + dir + 8) % 8;
+                tim_modal = (tim_modal + dir + 9) % 9;
                 if(tim_modal <= 2)          tim_index = 0;
                 else if(tim_modal <= 6)     tim_index = 1;
                 else                        tim_index = 2;
@@ -186,6 +187,11 @@ void Menu_EncoderB(void)
             AC_idx = (AC_idx + 1) % 2;
             AC_Draw();
             break;
+        case 8: /* Grain: 手动增益 */
+            Grain_idx = (Grain_idx + dir + 8) % 8;
+            Chose_Grain(Grain_idx);
+            G_Draw();
+            break;
         default: break;  /* Single/Measure/FFT/Correct 不用编码器B */
     }
 }
@@ -223,25 +229,20 @@ void AC_change(void)
 void V_Draw(void)
 {
     V_DIV = V_div[V_idx];
-    ILI9341_fill(50, 2, 100, 18, BLACK);             /* 先清空再写, 避免残影 */
+    ILI9341_fill(50, 2, 100, 18, BLACK);
     sprintf(line2, " %.2fV", V_DIV);
     ILI9341_draw_string(50, 2, line2, GRED);
 }
 
-void V_div_change(void)
-{
- int16_t now = (int16_t)__HAL_TIM_GET_COUNTER(&htim4);
-    int16_t diff = now - last_encB;
-    if(diff >= 4) {
-        V_idx = (V_idx + 1) % 3;
-        last_encB += 4;
-        V_Draw();
-    } else if(diff <= -4) {
-        V_idx = (V_idx + 2) % 3;
-        last_encB -= 4;
-        V_Draw();
-    }
+//手动增益模式
+void G_Draw(void)
+{Chose_Grain(Grain_idx);
+    sprintf(line2, " %.3f", adc_grain);
+    ILI9341_draw_string(rectangle_Left+2,185,line2,BLACK );
+     ILI9341_draw_string(rectangle_Left+2,185,line2,GRED );
 }
+
+
 
 //时基模式
 void TIM_Scan(void)
@@ -264,13 +265,13 @@ void TIM_Scan(void)
         tim_modal--;
         last_encB -= 4;  
     }
-    if(tim_modal == 255)  {tim_modal = 7;}
-    if(tim_modal >= 8)  tim_modal = 0;
+    if(tim_modal == 255)  {tim_modal = 8;}
+    if(tim_modal >= 9)  tim_modal = 0;
     switch(tim_modal)
     {
         case 0: case 1: case 2:      tim_index = 0; break;
         case 3: case 4: case 5: case 6: tim_index = 1; break;
-        case 7:                     tim_index = 2; break;
+        case 7: case 8:               tim_index = 2; break;
     }
       tim_div = TIM_modal[tim_modal];
                    ILI9341_fill(175,2, 204,18, BLACK);
@@ -365,12 +366,19 @@ switch(now_menu_idx) {
             break;
         case 3: tri_step_change();
             break;
-        case 4: // Measure 
-            FREQ = Freq_Capture_Get();
-             sprintf(line2, " %.1fkHz", FREQ);
-    ILI9341_draw_string(rectangle_Left+2, 44, line2, BLACK);
-    ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
-             break;
+        case 4: // Measure: FFT测频+测幅
+            {
+                float amp_adc;
+                FREQ = Measure_Signal_FFT(&amp_adc) / 4000.0f;
+                AMP  = amp_adc / adc_grain;
+                sprintf(line2, " %.1fkHz", FREQ);
+                ILI9341_draw_string(rectangle_Left+2, 44, line2, BLACK);
+                ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
+                sprintf(line2, " %.2fV", AMP);
+                ILI9341_draw_string(rectangle_Left+2, 91, line2, BLACK);
+                ILI9341_draw_string(rectangle_Left+2, 91, line2, GRED);
+            }
+            break;
         case 5: FFT_Process();
             break;
         case 6:  AC_output();
@@ -378,6 +386,9 @@ switch(now_menu_idx) {
         case 7: // Correct
          Correct_Process();
             break;
+        case 8: // Grain: 无额外动作, 仅旋转调整
+            break;
+            default:break;
     }
     modal_active = 0;  /* 处理完后清零, 防止下一帧重复执行 */
 }
@@ -402,8 +413,8 @@ void AC_output(void)
 void Match_Tim(void)
 {
     /* tim_base全是μs单位, 用作匹配基准; TIM_modal混用μs/ms/s仅用于显示 */
-    const float tim_base[8] = {
-        20,50,100,200,1000,10000,100000,200000
+    const float tim_base[9] = {
+        10,50,100,500,1000,10000,100000,200000,2000000
     };
     float current_base;
         switch(tim_index)

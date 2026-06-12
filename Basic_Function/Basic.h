@@ -43,7 +43,7 @@
 /*==============================================================================
  * 菜单 常量
  *============================================================================*/
-#define ITEM_NUM        8
+#define ITEM_NUM        9
 
 /*==============================================================================
  * 全局变量 — 采样 & 波形
@@ -94,7 +94,7 @@ extern float    LEVEL;
  * 全局变量 — 时基
  *============================================================================*/
 extern float    T_DIV;
-extern float    TIM_modal[8];
+extern float    TIM_modal[9];
 extern char*    TIM_V[3];
 extern uint8_t  tim_index;
 extern uint8_t  tim_modal;
@@ -138,12 +138,13 @@ extern volatile uint8_t Single_Trig_flag;
  * 全局变量 — FFT
  *============================================================================*/
 extern float32_t hanning_win[Sample_Point];
-extern float32_t FFT_in[Sample_Point];
-extern float32_t fft_mag[Sample_Point / 2];
+extern float32_t FFT_in[Sample_Point];               /* RFFT输入 */
+extern float32_t FFT_out[Sample_Point];              /* RFFT输出(独立缓冲区) */
+extern float32_t fft_mag[Sample_Point / 2 + 1];      /* 幅值谱 */
 extern arm_rfft_fast_instance_f32 rfft_inst;
 extern float32_t base_freq;
 extern float    fft_sample_interval;
-extern volatile uint8_t FFT_Refresh_flag;  /* FFT显示锁定: 1=保持频谱, 0=恢复波形 */
+extern volatile uint8_t FFT_Refresh_flag;
 
 /*==============================================================================
  * 全局变量 — 编码器 & 菜单 (仅声明, 定义在 Display.c)
@@ -170,8 +171,9 @@ float Freq_Capture_Get(void);
 void      FFT_Init(void);
 void      FFT_Analysis(uint16_t *adc_raw, uint16_t len);
 float32_t Find_Base_Freq(void);
-void      FFT_Display(uint16_t base_idx);
+void      FFT_Display(uint16_t base_idx, uint32_t sample_rate);
 void      FFT_Process(void);
+float     Measure_Signal_FFT(float *amp_adc); /* FFT测频+测幅 */
 
 /*==============================================================================
  * 函数声明 — 自校正 (GPIO_flag.c)
@@ -184,7 +186,8 @@ void Correct_Process(void);
  *============================================================================*/
 void  Chose_Grain(uint8_t idx);
 float ADC_Measure_amp(uint16_t *src);
-static void ApplySampleRate(uint32_t fs_hz);
+void     ApplySampleRate(uint32_t fs_hz);
+uint32_t Get_SampleRate(void);        /* 从TIM1寄存器读实际采样率 */
 void  ADC_Measure_amp_rt(void);       /* 实时幅值: 1024原始点测峰谷 */
 void  auto_gain(void);               /* (旧版, #if 0 注释保留) */
 void  AGC_Init(void);                /* 开机初始化: 增益=1, 设最大采样率 */
@@ -221,6 +224,7 @@ void  AC_Draw(void);
 void  AC_change(void);
 void  AC_output(void);
 void  V_Draw(void);
+void  G_Draw(void);       /* 手动增益显示 */
 void  V_div_change(void);
 void  TIM_Scan(void);
 void  EncoderB_Press(void);

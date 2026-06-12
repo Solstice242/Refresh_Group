@@ -29,8 +29,8 @@ float adc_std_amp=3.3f;
 
 //增益变量
 float V_Grain[8]={0.129,0.24,0.496,0.992,1.984,3.931,7.9,15.74};//放大或衰减倍数
-uint8_t Grain_idx=3;        /* 默认增益=1 */
-float adc_grain=0.992f;
+uint8_t Grain_idx=0;        /* 默认增益=1 */
+float adc_grain=0.129f;
 uint8_t agc_was_clipped = 0; /* AGC: 上次测量是否削波 (仅AGC_Run使用) */
 uint8_t auto_mode = 1;       /* 0=MANUAL(T/DIV), 1=AUTO(默认) */
 uint8_t adc_owner = 0;       /* ADC占用标志: 0=正常触发, 1=AGC自适配 */
@@ -123,30 +123,16 @@ float ADC_Measure_amp(uint16_t *src)
     ffp = (max_v - min_v) * ADC_LSB;
     float vol = ffp / adc_grain;
     AMP = vol * adc_amp_grain;
+     sprintf(line2, " %.2fV", AMP);
+                ILI9341_draw_string(rectangle_Left+2, 91, line2, BLACK);
+                ILI9341_draw_string(rectangle_Left+2, 91, line2, GRED);
    return AMP;
 }
 
-/*
-自动切换增益挡位：
-流程：
-  默认增益=1 → 快速采样 (adc_buffer 1024点) → 检测削波？
-    ├─ 是 (削顶/削底) → 逐级降增益，直至不削波
-    └─ 否 → 计算 Vpp_output (BNC输入端真实幅值)
-            ├─ Vpp_output < 0.15V 且 当前增益 < 16 → 升一档增益
-            └─ 其它 → 保持当前增益，不动作
-*/
-void AGC_Init(void)
-{
-    Chose_Grain(3);                         /* 增益=1× */
-    ApplySampleRate(1000000);               /* 初始 1 Msps */
-}
-
-
 /*──────────────────────────────────────────────────────────
-  ApplySampleRate — 重新配置 TIM1 采样率, 保持增益不变
-  安全模式: 先停定时器 → 改寄存器 → 强制更新影子寄存器
+  ApplySampleRate — 配置 TIM1 采样率
 ──────────────────────────────────────────────────────────*/
-static void ApplySampleRate(uint32_t fs_hz)
+void ApplySampleRate(uint32_t fs_hz)
 {
     if (fs_hz < 100)       fs_hz = 100;
     if (fs_hz > 5000000)   fs_hz = 5000000;
@@ -159,183 +145,23 @@ static void ApplySampleRate(uint32_t fs_hz)
     }
     if (arr > 65535) arr = 65535;
 
-    /* 安全: 先停定时器, 防 DMA/定时器运行中改寄存器产生竞态 */
-    HAL_TIM_Base_Stop(&htim1);
     __HAL_TIM_SET_PRESCALER(&htim1, psc);
     __HAL_TIM_SET_AUTORELOAD(&htim1, arr);
     __HAL_TIM_SET_COUNTER(&htim1, 0);
-    htim1.Instance->EGR = TIM_EGR_UG;   /* 强制更新事件, 影子寄存器立即生效 */
     sample_rate    = TIM_ADC_FREQ / ((psc + 1) * (uint32_t)(arr + 1));
     sample_interval = 1.0f / (float)sample_rate;
 }
 
 /*──────────────────────────────────────────────────────────
-  AdpDetect — 扫描缓冲区:
-    过零滞回检测 (上升沿计数)
-    削波检测     (连续3点靠近轨才判, 防单点噪声误触发)
-    峰谷值统计
+  Get_SampleRate — 从 TIM1 寄存器读实际采样率
 ──────────────────────────────────────────────────────────*/
-static AdpDetect_t AdpDetect(uint16_t *buf, uint32_t len)
+uint32_t Get_SampleRate(void)
 {
-    AdpDetect_t d = {0, 0, 0, 0};
-    if (len == 0) return d;
-
-    /* 用首样本初始化峰谷值, 避免无样本时 max-min 溢出 */
-    d.min_code = buf[0];
-    d.max_code = buf[0];
-
-    /* 滞回阈值: 有符号计算防下溢, 并裁限到 ADC 有效范围 */
-    int32_t zero = (int32_t)adc_zero;
-    int32_t adc_max = (int32_t)adc_buf_max;
-    uint16_t TH_LOW  = (uint16_t)(zero > 500 ? zero - 500 : 0);
-    uint16_t TH_HIGH = (uint16_t)(zero + 500 < adc_max ? zero + 500 : adc_max);
-
-    uint8_t armed = 0;
-    uint8_t consec_high = 0, consec_low = 0;
-    const uint16_t CLIP_HI = (uint16_t)(adc_buf_max - 20);  /* 上轨 ~4mV */
-    const uint16_t CLIP_LO = 20;                             /* 下轨 ~4mV */
-
-    for (uint32_t i = 0; i < len; i++) {
-        uint16_t v = buf[i];
-
-        /* 削波: 连续3点靠近轨才判, 防单点毛刺误触发 */
-        if (v >= CLIP_HI) {
-            consec_high++;
-            if (consec_high >= 3) d.clipping = 1;
-        } else { consec_high = 0; }
-
-        if (v <= CLIP_LO) {
-            consec_low++;
-            if (consec_low >= 3) d.clipping = 1;
-        } else { consec_low = 0; }
-
-        /* 峰谷值 */
-        if (v < d.min_code) d.min_code = v;
-        if (v > d.max_code) d.max_code = v;
-
-        /* 过零滞回 (上升沿计数) */
-        if (!armed) {
-            if (v < TH_LOW) armed = 1;
-        } else {
-            if (v > TH_HIGH) { d.cross_count++; armed = 0; }
-        }
-    }
-    return d;
+    uint32_t psc_val = htim1.Instance->PSC + 1;
+    uint32_t arr_val = htim1.Instance->ARR + 1;
+    if (psc_val == 0 || arr_val == 0) return 0;
+    return TIM_ADC_FREQ / psc_val / arr_val;
 }
-
-/*──────────────────────────────────────────────────────────
-  AdpEstimateFreq — 由过零数估算频率
-    过零 ≥ 2 → 直接计算并更新 measured_freq
-    过零 < 2 → 回退到上次有效值 measured_freq
-──────────────────────────────────────────────────────────*/
-static float AdpEstimateFreq(uint32_t cross_count, float window_time)
-{
-    float freq_est;
-    if (cross_count >= 2) {
-        freq_est = (float)cross_count / window_time;
-        measured_freq = freq_est;
-    } else {
-        freq_est = measured_freq;
-    }
-    return freq_est;
-}
-
-/*──────────────────────────────────────────────────────────
-  AdpAdjustGain — 增益调整 (2帧防抖)
-    削波        → 降一档 (Grain_idx > 0 时)
-    信号过小    → 升一档 (Vpp < 0.15V 且 Grain_idx < 7 时)
-    正常        → 清零防抖计数器
-──────────────────────────────────────────────────────────*/
-static void AdpAdjustGain(uint8_t clipping, float vpp_output)
-{
-    if (clipping && Grain_idx > 0) {
-        consec_clip++;
-        consec_small = 0;
-        if (consec_clip >= 2) {
-            Chose_Grain(Grain_idx - 1);
-            consec_clip = 0;
-        }
-    } else if (vpp_output < 0.15f && Grain_idx < 7) {
-        consec_small++;
-        consec_clip = 0;
-        if (consec_small >= 2) {
-            Chose_Grain(Grain_idx + 1);
-            consec_small = 0;
-        }
-    } else {
-        consec_clip  = 0;
-        consec_small = 0;
-    }
-}
-
-/*──────────────────────────────────────────────────────────
-  AdpAdjustRate — 采样率调整 (2帧防抖)
-    过零太少 (cross < 2)  → 降采样率拉长窗口, 捕获更多周期
-    周期过多 (cycles > 20) → 升采样率缩短窗口
-    正常                  → 清零防抖计数器
-──────────────────────────────────────────────────────────*/
-static void AdpAdjustRate(uint32_t cross_count, float cycles_in_window,
-                          uint32_t current_fs)
-{
-    if (cross_count < 2) {
-        /* 窗口太短装不下完整周期 → 降 fs 拉长窗口 */
-        consec_low_cycles++;
-        consec_high_cycles = 0;
-        if (consec_low_cycles >= 2) {
-            uint32_t new_fs = current_fs / 2;
-            if (new_fs < 100) new_fs = 100;
-            ApplySampleRate(new_fs);
-            consec_low_cycles = 0;
-        }
-    } else if (cycles_in_window > 20.0f) {
-        /* 窗口内周期太多波形过密 → 升 fs 缩短窗口 */
-        consec_high_cycles++;
-        consec_low_cycles = 0;
-        if (consec_high_cycles >= 2) {
-            uint32_t new_fs = current_fs * 2;
-            if (new_fs > 5000000) new_fs = 5000000;
-            ApplySampleRate(new_fs);
-            consec_high_cycles = 0;
-        }
-    } else {
-        /* 正常: 2~20 周期, 过零足够 */
-        consec_low_cycles  = 0;
-        consec_high_cycles = 0;
-    }
-}
-
-/*
-AdaptiveEngine_ProcessNewData — 每帧自适应处理 (调度框架):
-  1. AdpDetect       → 过零/削波/峰谷
-  2. AdpEstimateFreq → 频率→周期数
-  3. AdpAdjustGain   → 削波降档 / 过小升档
-  4. AdpAdjustRate   → 过零太少升采样率 / 周期过多升采样率 (仅AUTO)
-  调用: ADC_Project 中每帧一次
-*/
-void AdaptiveEngine_ProcessNewData(uint16_t *buf, uint32_t len, uint32_t current_fs)
-{
-    /* 参数校验: 防除零和空帧 */
-    if (len == 0 || current_fs == 0) return;
-
-    /* ── 1. 检测: 过零/削波/峰谷 ── */
-    AdpDetect_t d = AdpDetect(buf, len);
-
-    /* ── 2. 导出量计算 + 频率估计 ── */
-    float vpp_adc    = (float)(d.max_code - d.min_code) * ADC_LSB;
-    float vpp_output = vpp_adc / adc_grain;
-    float window_time = (float)len / (float)current_fs;
-    float freq_est   = AdpEstimateFreq(d.cross_count, window_time);
-    float cycles_in_window = freq_est * window_time;
-
-    /* ── 3. 增益调整 (削波/过小) ── */
-    AdpAdjustGain(d.clipping, vpp_output);
-
-    /* ── 4. 采样率调整 (仅AUTO模式) ── */
-    if (auto_mode) {
-        AdpAdjustRate(d.cross_count, cycles_in_window, current_fs);
-    }
-}
-
 
 /*
 可调触发电平：
@@ -421,11 +247,18 @@ case OUT_1_Pin:
                     EXTI_D1->IMR1 |= (1UL << 4);     /* 退出时重开连续触发 */
                 }
                 break;
-            case 4: /* Measure: 读频率 */
-                FREQ = Freq_Capture_Get();
-                sprintf(line2, " %.1fkHz", FREQ);
-                ILI9341_draw_string(rectangle_Left+2, 44, line2, BLACK);
-                ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
+            case 4: /* Measure: FFT测频+测幅 */
+                {
+                    float amp_adc;
+                    FREQ = Measure_Signal_FFT(&amp_adc) / 1000.0f;
+                    AMP  = amp_adc / adc_grain;
+                    sprintf(line2, " %.1fkHz", FREQ);
+                    ILI9341_draw_string(rectangle_Left+2, 44, line2, BLACK);
+                    ILI9341_draw_string(rectangle_Left+2, 44, line2, GRED);
+                    sprintf(line2, " %.2fV", AMP);
+                    ILI9341_draw_string(rectangle_Left+2, 91, line2, BLACK);
+                    ILI9341_draw_string(rectangle_Left+2, 91, line2, GRED);
+                }
                 break;
             case 5: /* FFT: 设标志位, 主循环执行 */
                 trigger_fft = 1;

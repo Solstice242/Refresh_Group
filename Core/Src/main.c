@@ -121,8 +121,10 @@ ILI9341_init(BLACK);
   Show_Data();
 
    //HAL_TIM_PWM_Start(&htim12,TIM_CHANNEL_1);
-  
-  AGC_Init();                   /* 增益=1, 设最大采样率 */
+
+  Chose_Grain(0);    
+
+
   FFT_Init();                   
 	  Freq_Capture_Init();
   /* USER CODE END 2 */
@@ -178,6 +180,11 @@ ILI9341_init(BLACK);
         
      }
     }
+
+      
+        
+    
+    
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
